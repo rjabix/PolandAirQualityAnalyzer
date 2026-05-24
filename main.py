@@ -3,8 +3,9 @@ from smogloader import load_snapshot_dir
 
 
 def main(configuration: Configuration = config):
-    result = load_snapshot_dir(configuration.DataFolderPath)
+    result = load_snapshot_dir(configuration.DataFolderPath, dev_mode=configuration.DevMode)
     df = result.df
+    df[df["city"] == "PSZCZYNA"].plot(x="file_timestamp", y="pm25_avg")
 
 
 # Press the green button in the gutter to run the script.

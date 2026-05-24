@@ -50,13 +50,26 @@ class StationLocation(BaseModel):
 
 
 class AirQualityReading(BaseModel):
-    """Averaged sensor measurements for a single time window."""
+    """
+    Averaged sensor measurements for a single time window.
 
-    humidity_avg: float = Field(ge=0, le=100, description="Relative humidity (%)")
-    pressure_avg: float = Field(gt=0, description="Atmospheric pressure (hPa)")
-    temperature_avg: float = Field(description="Temperature (°C)")
-    pm10_avg: float = Field(ge=0, description="PM10 particulate matter (µg/m³)")
-    pm25_avg: float = Field(ge=0, description="PM2.5 particulate matter (µg/m³)")
+    All fields are Optional — the API sends null when a station is online
+    but has no data for a given metric at that moment.
+    """
+
+    humidity_avg: Optional[float] = Field(default=None, ge=0, le=100, description="Relative humidity (%)")
+    pressure_avg: Optional[float] = Field(default=None, gt=0, description="Atmospheric pressure (hPa)")
+    temperature_avg: Optional[float] = Field(default=None, description="Temperature (°C)")
+    pm10_avg: Optional[float] = Field(default=None, ge=0, description="PM10 particulate matter (µg/m³)")
+    pm25_avg: Optional[float] = Field(default=None, ge=0, description="PM2.5 particulate matter (µg/m³)")
+
+    @property
+    def has_data(self) -> bool:
+        """True if at least one sensor field is not null."""
+        return any(v is not None for v in (
+            self.humidity_avg, self.pressure_avg,
+            self.temperature_avg, self.pm10_avg, self.pm25_avg,
+        ))
 
 
 class StationReading(BaseModel):
@@ -84,12 +97,15 @@ class StationReading(BaseModel):
         return f"{self.school.post_code}_{self.school.name}"
 
     @property
-    def air_quality_index(self) -> str:
+    def air_quality_index(self) -> Optional[str]:
         """
         Simple WHO-based PM2.5 band label for quick bucketing.
         Bands (µg/m³): Good <10 | Moderate 10–25 | Unhealthy 25–50 | Hazardous >50
+        Returns None if PM2.5 data is unavailable.
         """
         pm25 = self.data.pm25_avg
+        if pm25 is None:
+            return None
         if pm25 < 10:
             return "Good"
         elif pm25 < 25:

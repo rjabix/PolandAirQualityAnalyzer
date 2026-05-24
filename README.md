@@ -20,6 +20,7 @@
 
 ```yaml
 DataFolderPath: "../PolandAirQualityData/data/"
+DevMode: true
 CacheEnabled: true
 MaxRetries: 3
 ```
@@ -30,6 +31,7 @@ MaxRetries: 3
 import configuration
 
 print(configuration.DataFolderPath)
+print(configuration.DevMode)
 print(configuration.CacheEnabled)
 print(configuration.MaxRetries)
 ```
@@ -39,9 +41,13 @@ print(configuration.MaxRetries)
 If you want the new setting to be part of the main config object, add a field in `configuration.py`:
 
 ```python
+from dataclasses import dataclass, field
+from typing import Any
+
 @dataclass(slots=True)
 class Configuration:
     DataFolderPath: str
+    DevMode: bool
     CacheEnabled: bool = False
     MaxRetries: int = 3
     extra: dict[str, Any] = field(default_factory=dict, repr=False)
