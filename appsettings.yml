@@ -1,2 +1,3 @@
 DataFolderPath: "../PolandAirQualityData/data/"
-DevMode: true
+DevMode: false # true: last 3 days preview, false: all data
+OutputDir: "output/"

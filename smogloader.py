@@ -243,13 +243,13 @@ def load_snapshot_dir(
         If True, ignore the existing cache and reparse everything.
         Use this after upgrading the models or fixing a parsing bug.
     last_days:
-        If set, only return rows from the most recent N days.
-        The cache is still fully updated; this just slices the result.
-        Useful for dashboards or analyses that only care about recent data.
+        If set, only return rows from the most recent N days of available
+        data (anchored to the latest timestamp in the cache, not the clock).
     dev_mode:
         Shortcut for fast iteration during development.
-        Loads only the 3 most recent days and skips parsing any new files
-        (cache must already exist). Overrides last_days if both are set.
+        Loads only the 3 most recent days of available data and skips
+        parsing any new files (cache must already exist).
+        Overrides last_days if both are set.
         Set DEV=true in your environment to enable automatically.
     """
     import os
@@ -257,6 +257,7 @@ def load_snapshot_dir(
         dev_mode = True
     if dev_mode:
         last_days = 3
+
     directory  = Path(directory)
     cache_path = directory / _CACHE_FILENAME
 
@@ -273,16 +274,14 @@ def load_snapshot_dir(
     # -----------------------------------------------------------------------
     # Determine which files still need parsing
     # -----------------------------------------------------------------------
-    cached_df: pd.DataFrame | None = None
-
     if not rebuild_cache and cache_path.exists():
         try:
             if dev_mode:
                 # In dev mode we never parse new files — just slice the cache.
                 # This makes restarts nearly instant even with 5M+ total rows.
                 logger.info("dev_mode: reading slice from cache, skipping new-file check.")
-                cached_df = _read_parquet_slice(cache_path, last_days=last_days)
-                return LoadResult(df=cached_df)
+                df = _read_parquet_slice(cache_path, last_days=last_days)
+                return LoadResult(df=df)
             else:
                 # Read only the source_file column to find what's cached —
                 # avoids pulling all 5M rows just to check which files are new.
@@ -290,14 +289,12 @@ def load_snapshot_dir(
                     pd.read_parquet(cache_path, columns=["source_file"])["source_file"].unique()
                 )
                 new_files = [f for f in all_files if f.name not in cached_sources]
-                cached_df = None  # loaded in full only if we need to merge below
                 logger.info(
                     "Cache hit: %d source files already cached. %d new file(s) to parse.",
                     len(cached_sources), len(new_files),
                 )
         except Exception as exc:
             logger.warning("Cache unreadable (%s), rebuilding from scratch.", exc)
-            cached_df = None
             new_files = all_files
     else:
         new_files = all_files
@@ -333,11 +330,7 @@ def load_snapshot_dir(
             except Exception as exc:
                 logger.warning("Could not write cache: %s", exc)
 
-        df = _read_parquet_slice(cache_path, last_days=last_days)
-
-    else:
-        # Nothing new — slice directly from cache
-        df = _read_parquet_slice(cache_path, last_days=last_days)
+    df = _read_parquet_slice(cache_path, last_days=last_days)
 
     logger.info(
         "Ready: %d rows | %d snapshots | %d stations | %d failed",
@@ -352,8 +345,10 @@ def load_snapshot_dir(
 
 def _read_parquet_slice(cache_path: Path, last_days: int | None) -> pd.DataFrame:
     """
-    Read the Parquet cache, optionally filtering to the most recent N days.
-    Uses Parquet column/filter pushdown so only matching row groups are read.
+    Read the Parquet cache, optionally returning only the last N days
+    of *available data* — anchored to the latest timestamp in the file,
+    not to the current clock. This means dev_mode always returns real rows
+    even when the data collection has been paused for several days.
     """
     if not cache_path.exists():
         return _empty_dataframe()
@@ -361,24 +356,20 @@ def _read_parquet_slice(cache_path: Path, last_days: int | None) -> pd.DataFrame
     if last_days is None:
         return pd.read_parquet(cache_path)
 
-    import pyarrow.parquet as pq
-    import pyarrow.compute as pc
-    import pyarrow as pa
+    # Find the latest timestamp in the cache cheaply (one column, no full read).
+    ts_series = pd.read_parquet(cache_path, columns=["file_timestamp"])["file_timestamp"]
+    data_max = pd.to_datetime(ts_series).max()
+    cutoff = data_max - pd.Timedelta(days=last_days)
 
-    cutoff = pd.Timestamp.now() - pd.Timedelta(days=last_days)
+    df = pd.read_parquet(cache_path)
+    df["file_timestamp"] = pd.to_datetime(df["file_timestamp"])
+    result = df[df["file_timestamp"] >= cutoff].reset_index(drop=True)
 
-    try:
-        table = pq.read_table(
-            cache_path,
-            filters=[("file_timestamp", ">=", cutoff)],
-        )
-        df = table.to_pandas()
-        logger.info("Sliced to last %d days: %d rows", last_days, len(df))
-        return df
-    except Exception as exc:
-        logger.warning("Parquet filter failed (%s), falling back to full read + slice.", exc)
-        df = pd.read_parquet(cache_path)
-        return df[df["file_timestamp"] >= cutoff].reset_index(drop=True)
+    logger.info(
+        "Sliced to last %d days of data (since %s): %d rows",
+        last_days, cutoff.strftime("%Y-%m-%d %H:%M"), len(result),
+    )
+    return result
 
 
 def _empty_dataframe() -> pd.DataFrame:
