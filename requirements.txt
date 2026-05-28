@@ -1,0 +1,15 @@
+# Interactive dashboard (app.py)
+dash>=4.1.0          # includes plotly 6
+
+# GIF generation (main.py)
+matplotlib>=3.10
+Pillow>=12.0
+
+# Shared
+pandas>=3.0
+pyarrow>=14.0        # Parquet cache read/write
+pydantic>=2.0
+PyYAML>=6.0
+
+# Optional: faster JSON parsing (~3× speedup on cold cache builds)
+# orjson
