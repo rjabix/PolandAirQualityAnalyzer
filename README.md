@@ -1,4 +1,35 @@
-# PolandAirQualityAnalyzer Config Guide
+# PolandAirQualityAnalyzer
+
+## Interactive Dashboard
+
+Run the interactive map app:
+
+```bash
+.venv/bin/python app.py
+# Open http://127.0.0.1:8050
+```
+
+Features:
+- **Map** — 1821 station dots on a dark map, colored by the selected metric
+- **Metrics** — PM2.5, PM10, Temperature, Humidity, Pressure (each with its own color scale)
+- **Timeline** — slider across 2784 snapshots (Mar 18 → May 24 2026), drag or animate
+- **Play / Pause** — animates through frames with adjustable speed
+- **Click a dot** — side panel shows station name, AQI badge, all readings, and a PM2.5 history sparkline
+
+First startup parses new JSON files (~10 s); subsequent runs load instantly from the Parquet cache.
+Use `DevMode: true` in `appsettings.yml` for a 3-day slice during development.
+
+## Generating GIFs
+
+```bash
+.venv/bin/python main.py
+```
+
+Outputs four animated GIFs to `output/`: `pm25_map.gif`, `temperature_map.gif`, `bar_race.gif`, `daily_heatmap.gif`.
+
+---
+
+## Config Guide
 
 ## How configuration works
 
