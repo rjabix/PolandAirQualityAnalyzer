@@ -1,31 +1,63 @@
 # PolandAirQualityAnalyzer
 
-## Interactive Dashboard
-
-Run the interactive map app:
+## Running
 
 ```bash
-.venv/bin/python app.py
-# Open http://127.0.0.1:8050
+# Default: generate GIFs then launch the dashboard
+.venv/bin/python main.py
+
+# Dashboard only
+.venv/bin/python main.py dashboard
+
+# GIF export only
+.venv/bin/python main.py gifs
 ```
 
-Features:
-- **Map** — 1821 station dots on a dark map, colored by the selected metric
-- **Metrics** — PM2.5, PM10, Temperature, Humidity, Pressure (each with its own color scale)
-- **Timeline** — slider across 2784 snapshots (Mar 18 → May 24 2026), drag or animate
-- **Play / Pause** — animates through frames with adjustable speed
-- **Click a dot** — side panel shows station name, AQI badge, all readings, and a PM2.5 history sparkline
+Open **http://127.0.0.1:8050** after the dashboard starts.
 
 First startup parses new JSON files (~10 s); subsequent runs load instantly from the Parquet cache.
-Use `DevMode: true` in `appsettings.yml` for a 3-day slice during development.
+Use `DevMode: true` in `appsettings.yml` (or `DEV=true` env var) for a fast 3-day slice during development.
 
-## Generating GIFs
+---
 
-```bash
-.venv/bin/python main.py
-```
+## Interactive Dashboard
 
-Outputs four animated GIFs to `output/`: `pm25_map.gif`, `temperature_map.gif`, `bar_race.gif`, `daily_heatmap.gif`.
+### Map
+- Station dots colored by the selected metric (PM2.5, PM10, Temperature, Humidity, Pressure)
+- Each metric has its own color scale (green → yellow → red for pollutants, blue → red for temperature, etc.)
+- Hover a dot for a full readings tooltip
+
+### Timeline
+- Slider across all snapshots — drag or hit **▶ Play** to animate
+- Adjustable playback speed (Slow / Med / Fast)
+
+### Station side panel
+Click any dot to open the side panel:
+- Station name, city, postcode, street address
+- AQI badge (Good / Moderate / Unhealthy / Hazardous)
+- Current readings for all five metrics
+- **Sparkline charts** (last 96 snapshots up to the current slider position) for every metric, with value-coloured markers matching the map colorscale
+- Panel updates live as the slider moves or animation plays
+
+### Full-history modal
+The **⤢** button (top-right of the side panel, lights up once a station is selected) opens a full-screen overlay with the **complete station history** for all five metrics:
+- Drag left/right to pan through the full timeline
+- Use the range-slider bar at the bottom of each chart to jump anywhere
+- Scroll to zoom in/out
+- Default view shows the last 4 days; scrub left for older data
+
+---
+
+## Animated GIFs
+
+`python main.py gifs` exports four files to `output/`:
+
+| File                   | Contents                             |
+|------------------------|--------------------------------------|
+| `pm25_map.gif`         | PM2.5 levels animated across Poland  |
+| `temperature_map.gif`  | Temperature map animation            |
+| `bar_race.gif`         | Bar-chart race of top stations       |
+| `daily_heatmap.gif`    | Daily rhythm heatmap                 |
 
 ---
 

@@ -9,7 +9,7 @@ import logging
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dcc, html
+from dash import Dash, Input, Output, Patch, State, ctx, dcc, html, no_update
 
 from configuration import config
 from smogloader import load_snapshot_dir
@@ -92,7 +92,7 @@ def _v(val: object, unit: str = "") -> str:
 
 
 # ── Layout ────────────────────────────────────────────────────────────────────
-app = Dash(__name__, title="Poland Air Quality")
+app = Dash(__name__, title="Poland Air Quality", suppress_callback_exceptions=True)
 
 _DARK_CSS = f"""
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -124,6 +124,11 @@ _DARK_CSS = f"""
     .dash-slider-track   {{ background: {BORDER}; }}
     .dash-slider-range   {{ background: {ACCENT}; }}
     .dash-slider-tooltip {{ background: {SURFACE}; color: {FG}; border: 1px solid {BORDER}; }}
+
+    /* Expand button */
+    #expand-btn {{ transition: opacity .15s, color .15s; }}
+    #expand-btn:not(:disabled) {{ cursor: pointer; opacity: 1; color: {ACCENT}; border-color: {ACCENT}44; }}
+    #expand-btn:disabled {{ cursor: not-allowed; opacity: 0.25; }}
 """
 
 app.index_string = (
@@ -184,17 +189,36 @@ app.layout = html.Div(
                     },
                 ),
                 html.Div(
-                    id="panel",
-                    style={
-                        "width": "260px", "backgroundColor": SURFACE,
-                        "borderLeft": f"1px solid {BORDER}",
-                        "padding": "14px 12px", "overflowY": "auto",
-                        "flexShrink": 0, "fontSize": "13px",
-                    },
+                    style={"position": "relative", "width": "260px", "flexShrink": 0},
                     children=[
                         html.Div(
-                            "Click a station dot on the map to see details.",
-                            style={"color": MUTED, "marginTop": "60px", "textAlign": "center", "fontSize": "12px"},
+                            id="panel",
+                            style={
+                                "height": "100%", "backgroundColor": SURFACE,
+                                "borderLeft": f"1px solid {BORDER}",
+                                "padding": "14px 12px", "overflowY": "auto",
+                                "fontSize": "13px",
+                            },
+                            children=[
+                                html.Div(
+                                    "Click a station dot on the map to see details.",
+                                    style={"color": MUTED, "marginTop": "60px", "textAlign": "center", "fontSize": "12px"},
+                                ),
+                            ],
+                        ),
+                        html.Button(
+                            "⤢",
+                            id="expand-btn",
+                            n_clicks=0,
+                            title="Open full history",
+                            disabled=True,
+                            style={
+                                "position": "absolute", "top": "8px", "right": "8px",
+                                "backgroundColor": "transparent", "color": MUTED,
+                                "border": f"1px solid {BORDER}", "borderRadius": "4px",
+                                "padding": "2px 7px", "fontSize": "15px",
+                                "lineHeight": "1.4", "zIndex": 2,
+                            },
                         ),
                     ],
                 ),
@@ -250,6 +274,38 @@ app.layout = html.Div(
 
         dcc.Interval(id="tick", interval=700, disabled=True),
         dcc.Store(id="playing", data=False),
+        dcc.Store(id="sel-station", data=None),
+
+        # ── Full-history modal ────────────────────────────────────────────────
+        html.Div(
+            id="history-modal",
+            style={"display": "none"},
+            children=[
+                html.Div(
+                    style={
+                        "padding": "10px 20px", "borderBottom": f"1px solid {BORDER}",
+                        "backgroundColor": SURFACE, "display": "flex",
+                        "alignItems": "center", "gap": "12px", "flexShrink": 0,
+                    },
+                    children=[
+                        html.Div(id="modal-title",
+                                 style={"fontWeight": 700, "fontSize": "14px", "flex": 1}),
+                        html.Button(
+                            "✕  Close", id="modal-close", n_clicks=0,
+                            style={
+                                "backgroundColor": "transparent", "color": MUTED,
+                                "border": f"1px solid {BORDER}", "borderRadius": "4px",
+                                "padding": "4px 14px", "cursor": "pointer", "fontSize": "12px",
+                            },
+                        ),
+                    ],
+                ),
+                html.Div(
+                    id="modal-charts",
+                    style={"flex": 1, "overflowY": "auto", "padding": "12px 24px 20px"},
+                ),
+            ],
+        ),
     ],
 )
 
@@ -376,13 +432,14 @@ def render_map(idx: int, metric: str):
 
 @app.callback(
     Output("panel", "children"),
+    Output("sel-station", "data"),
     Input("map", "clickData"),
     Input("slider", "value"),
     prevent_initial_call=True,
 )
 def station_detail(click, idx):
     if not click:
-        return _empty_panel()
+        return _empty_panel(), None
 
     sid   = click["points"][0]["customdata"]
     ts    = TIMESTAMPS[idx]
@@ -393,7 +450,7 @@ def station_detail(click, idx):
         # Station absent from current frame — fall back to its most recent snapshot
         station_rows = _STATIONS.get(sid)
         if station_rows is None or station_rows.empty:
-            return html.Div("Station not found.", style={"color": MUTED})
+            return html.Div("Station not found.", style={"color": MUTED}), None
         row = station_rows.sort_values("file_timestamp", ascending=False)
     row = row.iloc[0]
 
@@ -462,7 +519,7 @@ def station_detail(click, idx):
             f"📍 {float(row['latitude']):.4f}°N, {float(row['longitude']):.4f}°E",
             style={"color": MUTED, "fontSize": "11px", "marginTop": "6px"},
         ),
-    ]
+    ], sid
 
 
 def _empty_panel() -> html.Div:
@@ -533,6 +590,157 @@ def _metric_sparkline(hist: "pd.DataFrame", metric: str) -> "dcc.Graph":
         config={"displayModeBar": False},
         style={"marginBottom": "2px"},
     )
+
+
+def _modal_chart(station_df: "pd.DataFrame", metric: str) -> "dcc.Graph":
+    mc  = METRICS[metric]
+    col = station_df.dropna(subset=[metric]).sort_values("file_timestamp")
+    vals = col[metric].clip(mc["vmin"], mc["vmax"]) if len(col) else pd.Series([], dtype=float)
+
+    x_range = None
+    if len(col) >= 2:
+        t_end   = col["file_timestamp"].iloc[-1]
+        t_start = max(col["file_timestamp"].iloc[0], t_end - pd.Timedelta(days=7))
+        x_range = [t_start, t_end]
+
+    fig = go.Figure(go.Scatter(
+        x=col["file_timestamp"] if len(col) else [],
+        y=col[metric] if len(col) else [],
+        mode="lines+markers",
+        line=dict(color=BORDER, width=0.8),
+        marker=dict(
+            color=vals,
+            colorscale=mc["colorscale"],
+            cmin=mc["vmin"],
+            cmax=mc["vmax"],
+            size=3,
+            line=dict(width=0),
+        ),
+        hovertemplate=f"%{{x|%d %b %H:%M}}<br>{mc['label']}: %{{y:.1f}} {mc['unit']}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=260,
+        margin=dict(l=52, r=12, t=28, b=55),
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        title=dict(text=f"{mc['label']} ({mc['unit']})", font=dict(color=FG, size=12), x=0),
+        dragmode="pan",
+        hovermode="x",
+        xaxis=dict(
+            range=x_range,
+            color=MUTED, tickfont=dict(color=MUTED, size=9),
+            tickformat="%d %b %H:%M",
+            gridcolor=BORDER, showgrid=True, linecolor=BORDER,
+            showspikes=False,
+            rangeslider=dict(visible=True, thickness=0.08, bgcolor=SURFACE, bordercolor=BORDER),
+        ),
+        yaxis=dict(
+            color=MUTED, tickfont=dict(color=MUTED, size=9),
+            gridcolor=BORDER, showgrid=True, linecolor=BORDER,
+            nticks=5, fixedrange=True,
+        ),
+        showlegend=False,
+        hoverlabel=dict(bgcolor=SURFACE, bordercolor=BORDER,
+                        font=dict(color=FG, size=11, family="monospace")),
+    )
+    return dcc.Graph(
+        id=f"modal-chart-{metric}",
+        figure=fig,
+        config={
+            "scrollZoom": True,
+            "displayModeBar": True,
+            "modeBarButtonsToRemove": ["toImage", "select2d", "lasso2d", "autoScale2d"],
+            "displaylogo": False,
+        },
+        style={"marginBottom": "8px"},
+    )
+
+
+@app.callback(
+    Output("expand-btn", "disabled"),
+    Input("sel-station", "data"),
+)
+def toggle_expand_btn(sid):
+    return sid is None
+
+
+_MODAL_HIDDEN = {"display": "none"}
+_MODAL_VISIBLE = {
+    "display": "flex", "flexDirection": "column",
+    "position": "fixed", "inset": "0", "zIndex": 500, "backgroundColor": BG,
+}
+
+
+@app.callback(
+    Output("history-modal", "style"),
+    Output("modal-title", "children"),
+    Output("modal-charts", "children"),
+    Input("expand-btn", "n_clicks"),
+    Input("modal-close", "n_clicks"),
+    State("sel-station", "data"),
+    prevent_initial_call=True,
+)
+def handle_modal(_, _close, sid):
+    if ctx.triggered_id == "modal-close" or not sid:
+        return _MODAL_HIDDEN, "", []
+
+    station_rows = _STATIONS.get(sid)
+    if station_rows is None or station_rows.empty:
+        return _MODAL_HIDDEN, "", []
+
+    r     = station_rows.iloc[-1]
+    title = f"{r['station_name']} · {r['city']}"
+    charts = [_modal_chart(station_rows, m) for m in METRICS]
+    return _MODAL_VISIBLE, title, charts
+
+
+
+_METRIC_KEYS = list(METRICS.keys())
+
+
+@app.callback(
+    [Output(f"modal-chart-{m}", "figure") for m in _METRIC_KEYS],
+    [Input(f"modal-chart-{m}", "relayoutData") for m in _METRIC_KEYS],
+    prevent_initial_call=True,
+)
+def sync_xaxis(*relayout_inputs):
+    triggered = ctx.triggered_id
+    if not triggered or not triggered.startswith("modal-chart-"):
+        return [no_update] * len(_METRIC_KEYS)
+
+    triggered_metric = triggered[len("modal-chart-"):]
+    triggered_idx    = _METRIC_KEYS.index(triggered_metric)
+    relayout         = relayout_inputs[triggered_idx]
+
+    if not relayout:
+        return [no_update] * len(_METRIC_KEYS)
+
+    if "xaxis.range[0]" in relayout:
+        x0, x1 = relayout["xaxis.range[0]"], relayout["xaxis.range[1]"]
+    elif "xaxis.range" in relayout:
+        x0, x1 = relayout["xaxis.range"]
+    elif relayout.get("xaxis.autorange"):
+        patches = []
+        for m in _METRIC_KEYS:
+            if m == triggered_metric:
+                patches.append(no_update)
+            else:
+                p = Patch()
+                p["layout"]["xaxis"]["autorange"] = True
+                patches.append(p)
+        return patches
+    else:
+        return [no_update] * len(_METRIC_KEYS)
+
+    patches = []
+    for m in _METRIC_KEYS:
+        if m == triggered_metric:
+            patches.append(no_update)
+        else:
+            p = Patch()
+            p["layout"]["xaxis"]["range"] = [x0, x1]
+            patches.append(p)
+    return patches
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ Loads Poland air quality JSON snapshots from a smog API, caches them as Parquet,
 
 ## Running the project
 
-**Default (GIFs + dashboard):**
+**Default (GIFs then dashboard):**
 ```bash
 .venv/bin/python main.py
 # Generates all four GIFs, then opens http://127.0.0.1:8050
@@ -26,6 +26,8 @@ Loads Poland air quality JSON snapshots from a smog API, caches them as Parquet,
 .venv/bin/python main.py gifs
 ```
 Outputs `output/pm25_map.gif`, `temperature_map.gif`, `bar_race.gif`, `daily_heatmap.gif`.
+
+`app.py` also still works standalone (`python app.py`) for backwards compatibility.
 
 **Dev mode** (loads only the 3 most recent days from cache — fast restarts):
 ```bash
@@ -85,12 +87,30 @@ Raw snapshot files live in a **sibling repository** at `../PolandAirQualityData/
 
 `app.py` loads the full dataset on startup, then pre-builds two dicts:
 - `_FRAMES[timestamp]` → DataFrame of all stations for that snapshot (used by `render_map`)
-- `_STATIONS[station_id]` → DataFrame of all snapshots for that station (used by `station_detail` sparkline)
+- `_STATIONS[station_id]` → DataFrame of all snapshots for that station (used by `station_detail` and `handle_modal`)
 
 The Dash callbacks are:
 - `render_map(idx, metric)` — triggered by slider or metric dropdown; returns a `go.Scattermap` figure
-- `station_detail(clickData, idx)` — triggered by clicking a dot; returns the side-panel content
+- `station_detail(clickData, idx)` — triggered by clicking a dot **or** moving the slider; returns the side-panel content and stores the selected station ID in `sel-station`
+- `toggle_expand_btn(sid)` — enables/disables the `⤢` expand button based on whether a station is selected
+- `handle_modal(_, _close, sid)` — opens/closes the full-history modal; renders all-time charts for the selected station via `_modal_chart()`
 - `toggle_play`, `advance`, `set_speed` — control playback animation
+
+### Side panel
+
+When a station dot is clicked the panel shows: station name, city/postcode, street, AQI badge, current readings for all five metrics, and compact sparkline charts (last 96 snapshots up to the current slider position). Each sparkline uses the metric's colorscale so marker colors match the map.
+
+### Full-history modal
+
+The `⤢` button (top-right of panel, lights up when a station is selected) opens a full-screen overlay with one chart per metric showing the **complete station history**. Each chart has:
+- A range slider for scrolling the full timeline
+- Drag-to-pan and scroll-to-zoom navigation
+- Default view = last 4 days; pan/scrub left for older data
+- Same value-coloured markers as the side-panel sparklines
+
+### Helpers
+- `_metric_sparkline(hist, metric)` — compact 90px chart for the side panel
+- `_modal_chart(station_df, metric)` — taller 180px chart with range slider for the modal
 
 Dark theme is applied via Dash 4's CSS custom properties (`--Dash-Fill-Inverse-Strong` etc.) injected through `app.index_string`.
 
