@@ -377,7 +377,7 @@ def render_map(idx: int, metric: str):
 @app.callback(
     Output("panel", "children"),
     Input("map", "clickData"),
-    State("slider", "value"),
+    Input("slider", "value"),
     prevent_initial_call=True,
 )
 def station_detail(click, idx):
@@ -397,29 +397,12 @@ def station_detail(click, idx):
         row = station_rows.sort_values("file_timestamp", ascending=False)
     row = row.iloc[0]
 
-    # PM2.5 history sparkline — O(1) lookup via pre-grouped dict
+    # History up to the current slider position (last 96 snapshots)
+    station_df = _STATIONS.get(sid, frame.iloc[:0])
     hist = (
-        _STATIONS.get(sid, frame.iloc[:0])   # empty frame as safe fallback
+        station_df[station_df["file_timestamp"] <= ts]
         .sort_values("file_timestamp")
-        .dropna(subset=["pm25_avg"])
         .tail(96)
-    )
-    y_max = max(float(hist["pm25_avg"].max()) * 1.15, 1.0) if len(hist) else 1.0
-    spark = go.Figure(go.Scatter(
-        x=hist["file_timestamp"],
-        y=hist["pm25_avg"],
-        mode="lines",
-        line=dict(color=ACCENT, width=1.5),
-        fill="tozeroy",
-        fillcolor="rgba(88,166,255,0.12)",
-        hoverinfo="skip",
-    ))
-    spark.update_layout(
-        height=68, margin=dict(l=0, r=0, t=2, b=0),
-        paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False, range=[0, y_max]),
-        showlegend=False,
     )
 
     AQI_C = {"Good": "#4CAF50", "Moderate": "#FFC107", "Unhealthy": "#FF5722", "Hazardous": "#B71C1C"}
@@ -470,10 +453,10 @@ def station_detail(click, idx):
         drow("Pressure",    row["pressure_avg"],    "hPa"),
 
         html.Div(
-            "PM2.5 history (last 96 snapshots)",
-            style={"color": MUTED, "fontSize": "11px", "marginTop": "12px", "marginBottom": "3px"},
+            "History — last 96 snapshots up to this moment",
+            style={"color": MUTED, "fontSize": "11px", "marginTop": "12px", "marginBottom": "6px"},
         ),
-        dcc.Graph(figure=spark, config={"displayModeBar": False}),
+        *[_metric_sparkline(hist, m) for m in METRICS],
 
         html.Div(
             f"📍 {float(row['latitude']):.4f}°N, {float(row['longitude']):.4f}°E",
@@ -486,6 +469,69 @@ def _empty_panel() -> html.Div:
     return html.Div(
         "Click a station dot on the map to see details.",
         style={"color": MUTED, "marginTop": "60px", "textAlign": "center", "fontSize": "12px"},
+    )
+
+
+def _metric_sparkline(hist: "pd.DataFrame", metric: str) -> "dcc.Graph":
+    mc  = METRICS[metric]
+    col = hist.dropna(subset=[metric])
+    vals = col[metric].clip(mc["vmin"], mc["vmax"]) if len(col) else pd.Series([], dtype=float)
+
+    fig = go.Figure(go.Scatter(
+        x=col["file_timestamp"] if len(col) else [],
+        y=col[metric] if len(col) else [],
+        mode="lines+markers",
+        line=dict(color=BORDER, width=0.8),
+        marker=dict(
+            color=vals,
+            colorscale=mc["colorscale"],
+            cmin=mc["vmin"],
+            cmax=mc["vmax"],
+            size=5,
+            line=dict(width=0),
+        ),
+        hovertemplate=f"%{{x|%d %b %H:%M}}<br>{mc['label']}: %{{y:.1f}} {mc['unit']}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=90,
+        margin=dict(l=40, r=6, t=18, b=32),
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        title=dict(
+            text=f"{mc['label']} ({mc['unit']})",
+            font=dict(color=MUTED, size=9),
+            x=0, xanchor="left",
+            pad=dict(l=0, t=0),
+        ),
+        xaxis=dict(
+            color=MUTED,
+            tickfont=dict(color=MUTED, size=7),
+            tickformat="%d %b %H:%M",
+            nticks=4,
+            gridcolor=BORDER,
+            showgrid=True,
+            linecolor=BORDER,
+            tickangle=-30,
+        ),
+        yaxis=dict(
+            color=MUTED,
+            tickfont=dict(color=MUTED, size=7),
+            gridcolor=BORDER,
+            showgrid=True,
+            nticks=3,
+            linecolor=BORDER,
+        ),
+        showlegend=False,
+        hoverlabel=dict(
+            bgcolor=SURFACE,
+            bordercolor=BORDER,
+            font=dict(color=FG, size=11, family="monospace"),
+        ),
+    )
+    return dcc.Graph(
+        figure=fig,
+        config={"displayModeBar": False},
+        style={"marginBottom": "2px"},
     )
 
 
