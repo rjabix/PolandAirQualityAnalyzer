@@ -5,20 +5,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this project does
 
 Loads Poland air quality JSON snapshots from a smog API, caches them as Parquet, and provides:
-- **Interactive dashboard** (`app.py`) — a Dash web app with a map, timeline slider, play/pause animation, and clickable station dots
-- **Animated GIFs** (`main.py`) — four exported GIFs: PM2.5 map, temperature map, bar chart race, daily rhythm heatmap
+- **Interactive dashboard** — a Dash web app with a map, timeline slider, play/pause animation, and clickable station dots
+- **Animated GIFs** — four exported GIFs: PM2.5 map, temperature map, bar chart race, daily rhythm heatmap
 
 ## Running the project
 
-**Interactive dashboard (main entry point):**
-```bash
-.venv/bin/python app.py
-# Open http://127.0.0.1:8050
-```
-
-**GIF export:**
+**Default (GIFs + dashboard):**
 ```bash
 .venv/bin/python main.py
+# Generates all four GIFs, then opens http://127.0.0.1:8050
+```
+
+**Dashboard only:**
+```bash
+.venv/bin/python main.py dashboard
+```
+
+**GIF export only:**
+```bash
+.venv/bin/python main.py gifs
 ```
 Outputs `output/pm25_map.gif`, `temperature_map.gif`, `bar_race.gif`, `daily_heatmap.gif`.
 
@@ -27,7 +32,7 @@ Outputs `output/pm25_map.gif`, `temperature_map.gif`, `bar_race.gif`, `daily_hea
 # Either set in appsettings.yml:
 #   DevMode: true
 # Or via env var:
-DEV=true .venv/bin/python app.py
+DEV=true .venv/bin/python main.py
 ```
 
 **Force cache rebuild** (after model or parsing changes):
@@ -58,12 +63,12 @@ smogloader.py            ← bulk loader: raw JSON → flat dicts → DataFrame 
                            bypasses Pydantic intentionally for performance
                            public API: load_snapshot_dir() → LoadResult(df, failed_files)
 
-app.py                   ← interactive Dash dashboard (main entry point)
+app.py                   ← interactive Dash dashboard (app object + callbacks + layout)
                            pre-groups data into _FRAMES (by timestamp) and _STATIONS (by station_id)
                            for O(1) per-frame and per-station lookups at runtime
 
 visualizations.py        ← four GIF generator functions; each takes (df, output_path)
-main.py                  ← calls load_snapshot_dir then all four GIF generators
+main.py                  ← unified entry point: `dashboard` (default) or `gifs` mode via argparse
 ```
 
 **Two similarly-named files:**
