@@ -19,16 +19,20 @@ def run_gifs(configuration: Configuration = config):
         generate_temperature_map,
         generate_bar_race,
         generate_daily_heatmap,
+        generate_temperature_heatmap,
+        generate_humidity_heatmap,
     )
 
     result = load_snapshot_dir(configuration.DataFolderPath, dev_mode=configuration.DevMode)
     df = result.df
     out = Path(configuration.OutputDir)
 
-    generate_pm25_map(df,          out / "pm25_map.gif")
-    generate_temperature_map(df,   out / "temperature_map.gif")
-    generate_bar_race(df,          out / "bar_race.gif")
-    generate_daily_heatmap(df,     out / "daily_heatmap.gif")
+    generate_pm25_map(df,              out / "pm25_map.gif")
+    generate_temperature_map(df,       out / "temperature_map.gif")
+    generate_bar_race(df,              out / "bar_race.gif")
+    generate_daily_heatmap(df,         out / "daily_heatmap.gif")
+    generate_temperature_heatmap(df,   out / "temperature_heatmap.gif")
+    generate_humidity_heatmap(df,      out / "humidity_heatmap.gif")
 
 
 if __name__ == "__main__":

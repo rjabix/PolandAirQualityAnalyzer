@@ -18,8 +18,15 @@ generate_bar_race(df, path)
 
 generate_daily_heatmap(df, path)
     Heatmap: X = calendar date, Y = hour of day (0–23),
-    colour = national median PM2.5. Shows daily pollution rhythms and
-    how they shift across the season.
+    colour = national median PM2.5. Shows daily pollution rhythms.
+
+generate_temperature_heatmap(df, path)
+    Same heatmap structure, colour = national median temperature.
+    Cold blues at night, warm reds during the day.
+
+generate_humidity_heatmap(df, path)
+    Same heatmap structure, colour = national median humidity.
+    Sandy tones for dry conditions, deep blues for high humidity.
 """
 
 from __future__ import annotations
@@ -70,6 +77,10 @@ _TEMP_CMAP = mcolors.LinearSegmentedColormap.from_list(
     "temp",
     [(0.0, "#1565C0"), (0.25, "#42A5F5"), (0.5, "#A5D6A7"),
      (0.75, "#FF8F00"), (1.0, "#B71C1C")],
+)
+_HUMIDITY_CMAP = mcolors.LinearSegmentedColormap.from_list(
+    "humidity",
+    [(0.0, "#C8A96E"), (0.35, "#6DAE8B"), (0.65, "#2196C8"), (1.0, "#0D3B6E")],
 )
 
 
@@ -317,37 +328,34 @@ def generate_bar_race(
 
 
 # ---------------------------------------------------------------------------
-# 4. Daily rhythm heatmap — hour × date
+# 4. Daily rhythm heatmaps — hour × date (PM2.5, temperature, humidity)
 # ---------------------------------------------------------------------------
 
-def generate_daily_heatmap(
-    df: pd.DataFrame,
-    output_path: str | Path = "output/daily_heatmap.gif",
-    fps: int = 6,
-) -> Path:
-    """
-    Heatmap: X = calendar date, Y = hour of day (0–23),
-    colour = national median PM2.5.
-
-    Rendered as an animated "reveal" — columns appear one day at a time so
-    you can watch the pattern build up left to right.
-    """
-    output_path = Path(output_path)
-
+def _heatmap_pivot(df: pd.DataFrame, metric: str) -> pd.DataFrame:
+    """Build a 24-row × N-date pivot of per-hour median values for *metric*."""
     pivot = (
-        df.dropna(subset=["pm25_avg"])
+        df.dropna(subset=[metric])
           .assign(
               date=df["file_timestamp"].dt.date,
               hour=df["file_timestamp"].dt.hour,
           )
-          .groupby(["date", "hour"])["pm25_avg"]
+          .groupby(["date", "hour"])[metric]
           .median()
           .unstack("date")
           .sort_index()
     )
     pivot.index = pivot.index.astype(int)
-    pivot = pivot.reindex(range(24)).interpolate(axis=0, limit_direction="both")
+    return pivot.reindex(range(24)).interpolate(axis=0, limit_direction="both")
 
+
+def _render_heatmap_gif(
+    pivot: pd.DataFrame,
+    cmap,
+    colorbar_label: str,
+    title_prefix: str,
+    output_path: Path,
+    fps: int,
+) -> Path:
     dates = list(pivot.columns)
     n_dates = len(dates)
 
@@ -355,17 +363,9 @@ def generate_daily_heatmap(
     vmax = float(pivot.stack().quantile(0.98))
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    cmap = mcolors.LinearSegmentedColormap.from_list(
-        "rhythm",
-        [(0.0, "#1A237E"), (0.3, "#1565C0"), (0.55, "#FDD835"),
-         (0.75, "#F57F17"), (1.0, "#B71C1C")],
-    )
-
     month_ticks = [i for i, d in enumerate(dates)
                    if pd.Timestamp(d).day == 1 or i == 0]
     month_labels = [pd.Timestamp(dates[i]).strftime("%b") for i in month_ticks]
-
-    logger.info("daily_heatmap: rendering %d frames (one per day)", n_dates)
 
     images = []
     for reveal_idx in range(1, n_dates + 1):
@@ -387,13 +387,12 @@ def generate_daily_heatmap(
         ax.set_xlim(-0.5, n_dates - 0.5)
 
         current_label = pd.Timestamp(dates[reveal_idx - 1]).strftime("%-d %b %Y")
-        ax.set_title(f"Poland PM2.5 daily rhythm — {current_label}",
-                     color=_FG, fontsize=10, pad=6)
+        ax.set_title(f"{title_prefix} — {current_label}", color=_FG, fontsize=10, pad=6)
         for spine in ax.spines.values():
             spine.set_color(_GRID)
 
         cbar = fig.colorbar(im, ax=ax, fraction=0.015, pad=0.01)
-        cbar.set_label("Median PM2.5 (µg/m³)", color=_FG, fontsize=8)
+        cbar.set_label(colorbar_label, color=_FG, fontsize=8)
         cbar.ax.yaxis.set_tick_params(color=_FG, labelsize=7)
         plt.setp(cbar.ax.yaxis.get_ticklabels(), color=_FG)
         for s in cbar.ax.spines.values():
@@ -403,3 +402,53 @@ def generate_daily_heatmap(
         images.append(_fig_to_pil(fig))
 
     return _save_gif(images, output_path, fps)
+
+
+def generate_daily_heatmap(
+    df: pd.DataFrame,
+    output_path: str | Path = "output/daily_heatmap.gif",
+    fps: int = 6,
+) -> Path:
+    """Animated reveal heatmap (hour × date), colour = national median PM2.5."""
+    output_path = Path(output_path)
+    pivot = _heatmap_pivot(df, "pm25_avg")
+    cmap = mcolors.LinearSegmentedColormap.from_list(
+        "pm25_rhythm",
+        [(0.0, "#1A237E"), (0.3, "#1565C0"), (0.55, "#FDD835"),
+         (0.75, "#F57F17"), (1.0, "#B71C1C")],
+    )
+    logger.info("daily_heatmap: rendering %d frames (one per day)", len(pivot.columns))
+    return _render_heatmap_gif(
+        pivot, cmap, "Median PM2.5 (µg/m³)", "Poland PM2.5 daily rhythm",
+        output_path, fps,
+    )
+
+
+def generate_temperature_heatmap(
+    df: pd.DataFrame,
+    output_path: str | Path = "output/temperature_heatmap.gif",
+    fps: int = 6,
+) -> Path:
+    """Animated reveal heatmap (hour × date), colour = national median temperature."""
+    output_path = Path(output_path)
+    pivot = _heatmap_pivot(df, "temperature_avg")
+    logger.info("temperature_heatmap: rendering %d frames", len(pivot.columns))
+    return _render_heatmap_gif(
+        pivot, _TEMP_CMAP, "Median Temperature (°C)", "Poland temperature daily rhythm",
+        output_path, fps,
+    )
+
+
+def generate_humidity_heatmap(
+    df: pd.DataFrame,
+    output_path: str | Path = "output/humidity_heatmap.gif",
+    fps: int = 6,
+) -> Path:
+    """Animated reveal heatmap (hour × date), colour = national median humidity."""
+    output_path = Path(output_path)
+    pivot = _heatmap_pivot(df, "humidity_avg")
+    logger.info("humidity_heatmap: rendering %d frames", len(pivot.columns))
+    return _render_heatmap_gif(
+        pivot, _HUMIDITY_CMAP, "Median Humidity (%)", "Poland humidity daily rhythm",
+        output_path, fps,
+    )
