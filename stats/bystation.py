@@ -5,10 +5,14 @@ import pandas as pd
 from smogloader import load_snapshot_dir
 
 result = load_snapshot_dir("../PolandAirQualityData/data/")
-df = result.df
-print(df.info())
+dataframe = result.df
+print(dataframe.info())
+print("Dataframe start date: ", dataframe[["timestamp"]]["timestamp"].min())
+print("Datafram end date: ", dataframe[["timestamp"]]["timestamp"].max())
+
 
 def single_station_statistics(date1, date2, station_id=None):
+    df = dataframe
     if station_id is None:
         station_id = df["station_id"].iloc[0]
 

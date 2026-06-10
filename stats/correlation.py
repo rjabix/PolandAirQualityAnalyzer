@@ -8,6 +8,8 @@ from smogloader import load_snapshot_dir
 result = load_snapshot_dir("../PolandAirQualityData/data/")
 dataframe = result.df
 print(dataframe.info())
+print("Dataframe start date: ", dataframe[["timestamp"]]["timestamp"].min())
+print("Datafram end date: ", dataframe[["timestamp"]]["timestamp"].max())
 
 
 def correlation_matrix():
@@ -15,7 +17,7 @@ def correlation_matrix():
         ["humidity_avg", "pressure_avg", "temperature_avg", "pm10_avg", "pm25_avg"]
     ]
 
-    parameters = parameters.sample(frac=0.1)
+    # parameters = parameters.sample(frac=0.1)
     corr = parameters.corr()
     print(corr)
     mask = np.triu(np.ones_like(corr, dtype=bool))

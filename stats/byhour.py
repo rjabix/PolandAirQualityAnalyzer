@@ -24,32 +24,20 @@ def weekday_statistics(date1=None, date2=None, pm_type="pm10_avg"):
         date2 = pd.Timestamp(date2)
         df = df[df["file_timestamp"] <= date2]
 
-    # df = df.sample(frac=0.1)
+    df = df.sample(frac=0.001)
     df = df[df[pm_type] < 100]
-    df["day_of_week"] = df["file_timestamp"].dt.day_name()
+    df["hour"] = df["file_timestamp"].dt.hour
 
     print(len(df.index))
 
-    day_order = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
-    ]
-    df["day_of_week"] = pd.Categorical(
-        df["day_of_week"], categories=day_order, ordered=True
-    )
+
     g = sns.FacetGrid(
         df,
-        row="day_of_week",
-        hue="day_of_week",
+        row="hour",
+        hue="hour",
         aspect=15,
         height=0.5,
         palette=pal,
-        row_order=day_order,
     )
     g.map(
         sns.kdeplot,
@@ -63,9 +51,13 @@ def weekday_statistics(date1=None, date2=None, pm_type="pm10_avg"):
 
     def label(x, color, label):
         ax = plt.gca()
-        ax.text(.8, .2, label, color=color,
+        ax.text(0.95, .2, label, color=color,
                 ha="left", va="center", transform=ax.transAxes)
-    g.map(label, "day_of_week")
+    # hour_order = [str(h).zfill(2) + ":00" for h in range(24)]
+    # df["hour_label"] = df["hour"].apply(lambda h: str(h) + ":00")
+    # df["hour_label"] = df["hour"]
+    # df["hour_label"] = pd.Categorical(df["hour_label"], categories=hour_order, ordered=True)
+    g.map(label, "hour")
     g.refline(y=0, linewidth=2, linestyle="-", color=None, clip_on=False)
     g.figure.subplots_adjust(hspace=-0.5)
     g.set_titles("")
@@ -78,9 +70,9 @@ def weekday_statistics(date1=None, date2=None, pm_type="pm10_avg"):
         g.axes[-1, 0].set_xlabel("PM2.5")
     g.figure.text(0.02, 0.5, "Density", rotation=90, va="center")
     if pm_type == "pm10_avg":
-        plt.suptitle("PM10 density aggregated by weekday")
+        plt.suptitle("PM10 density aggregated by hour")
     if pm_type == "pm25_avg":
-        plt.suptitle("PM2.5 density aggregated by weekday")
+        plt.suptitle("PM2.5 density aggregated by hour")
 
     plt.show()
 
@@ -89,4 +81,4 @@ date1 = datetime.datetime(2026, 4, 10, 0)
 date2 = datetime.datetime(2026, 4, 30, 0)
 
 # weekday_statistics(date1, date2)
-weekday_statistics(pm_type="pm25_avg")
+weekday_statistics(pm_type="pm10_avg")

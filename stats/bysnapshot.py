@@ -5,10 +5,13 @@ import pandas as pd
 from smogloader import load_snapshot_dir
 
 result = load_snapshot_dir("../PolandAirQualityData/data/")
-df = result.df
+dataframe = result.df
+print("Dataframe start date: ", dataframe[["timestamp"]]["timestamp"].min())
+print("Datafram end date: ", dataframe[["timestamp"]]["timestamp"].max())
 
 
 def single_snapshot_statistics(target_date=None):
+    df = dataframe
     if target_date is None:
         target_date = df["file_timestamp"].max()
     else:
